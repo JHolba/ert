@@ -6,7 +6,9 @@ import math
 import os
 import shutil
 import sys
+from contextlib import contextmanager
 from datetime import datetime
+from io import BytesIO
 from multiprocessing.pool import ThreadPool
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional, Set, Tuple, Union
@@ -44,7 +46,7 @@ def _load_realization(
     realisation: int,
     ensemble_config: EnsembleConfig,
     run_args: List[RunArg],
-) -> Tuple[LoadStatus, int]:
+) -> Tuple[Tuple[LoadStatus, str], int]:
     sim_fs.update_realization_state(
         realisation,
         [RealizationStateEnum.STATE_UNDEFINED],
@@ -112,7 +114,8 @@ class LocalEnsembleReader:
     ):
         self._storage: Union[LocalStorageReader, LocalStorageAccessor] = storage
         self._path = path
-        self._index = _Index.parse_file(path / "index.json")
+        with self._open(path / "index.json") as f:
+            self._index = _Index.parse_raw(f.read())
         self._experiment_path = self._path / "experiment"
 
         self._time_map = TimeMap()
@@ -170,8 +173,8 @@ class LocalEnsembleReader:
 
     def _load_state_map(self) -> List[RealizationStateEnum]:
         state_map_file = self._experiment_path / "state_map.json"
-        if state_map_file.exists():
-            with open(state_map_file, "r", encoding="utf-8") as f:
+        if self._path_exists(state_map_file):
+            with self._open(state_map_file, "r", encoding="utf-8") as f:
                 data = json.load(f)
                 return [RealizationStateEnum(v) for v in data["state_map"]]
         else:
@@ -198,10 +201,11 @@ class LocalEnsembleReader:
         if not realization_folders:
             return []
         summary_path = realization_folders[0] / "summary-data.nc"
-        if not summary_path.exists():
+        if not self._path_exists(summary_path):
             return []
-        with xr.open_dataset(summary_path, engine="scipy") as ds_disk:
-            keys = sorted(ds_disk["data_key"].values)
+        with self._to_path(summary_path) as path:
+            with xr.open_dataset(path, engine="scipy") as ds_disk:
+                keys = sorted(ds_disk["data_key"].values)
         return keys
 
     def realizationList(self, state: RealizationStateEnum) -> List[int]:
@@ -243,22 +247,23 @@ class LocalEnsembleReader:
 
     def load_ext_param(self, key: str, realization: int) -> Any:
         input_path = self.mount_point / f"realization-{realization}" / f"{key}.json"
-        if not input_path.exists():
+        if not self._path_exists(input_path):
             raise KeyError(f"No parameter: {key} in storage")
 
-        with open(input_path, "r", encoding="utf-8") as f:
+        with self._open(input_path, "r", encoding="utf-8") as f:
             data = json.load(f)
         return data
 
     def has_surface(self, key: str, realization: int) -> bool:
         input_path = self.mount_point / f"realization-{realization}"
-        return (input_path / f"{key}.irap").exists()
+        return self._path_exists(input_path / f"{key}.irap")
 
     def load_surface_file(self, key: str, realization: int) -> RegularSurface:
         input_path = self.mount_point / f"realization-{realization}" / f"{key}.irap"
-        if not input_path.exists():
+        if not self._path_exists(input_path):
             raise KeyError(f"No parameter: {key} in storage")
-        surf = xtgeo.surface_from_file(input_path, fformat="irap_ascii")
+        with self._to_path(input_path) as path:
+            surf = xtgeo.surface_from_file(path, fformat="irap_ascii")
         return surf
 
     def load_surface_data(self, key: str, realizations: List[int]) -> Any:
@@ -280,7 +285,11 @@ class LocalEnsembleReader:
     def load_gen_kw_priors(
         self,
     ) -> Dict[str, List[PriorDict]]:
-        with open(self.mount_point / "gen-kw-priors.json", "r", encoding="utf-8") as f:
+        with self._open(
+            self.mount_point / "gen-kw-priors.json",
+            "r",
+            encoding="utf-8",
+        ) as f:
             priors: Dict[str, List[PriorDict]] = json.load(f)
         return priors
 
@@ -288,11 +297,12 @@ class LocalEnsembleReader:
         self, key: str, realization: int
     ) -> Tuple[npt.NDArray[np.double], List[str]]:
         input_file = self.mount_point / f"realization-{realization}" / "gen-kw.nc"
-        if not input_file.exists():
+        if not self._path_exists(input_file):
             raise KeyError(f"Unable to load GEN_KW for key: {key}")
-        with xr.open_dataset(input_file, engine="scipy") as ds_disk:
-            np_data = ds_disk[key].to_numpy()
-            keys = list(ds_disk[key][f"{key}_keys"].values)
+        with self._to_path(input_file) as path:
+            with xr.open_dataset(path, engine="scipy") as ds_disk:
+                np_data = ds_disk[key].to_numpy()
+                keys = list(ds_disk[key][f"{key}_keys"].values)
 
         return np_data, keys
 
@@ -305,12 +315,13 @@ class LocalEnsembleReader:
             input_path = (
                 self.mount_point / f"realization-{realization}" / "summary-data.nc"
             )
-            if not input_path.exists():
+            if not self._path_exists(input_path):
                 continue
-            with xr.open_dataset(input_path, engine="scipy") as ds_disk:
-                result.append(ds_disk)
-                if not key_set:
-                    key_set = set(sorted(ds_disk["data_key"].values))
+            with self._to_path(input_path) as path:
+                with xr.open_dataset(path, engine="scipy") as ds_disk:
+                    result.append(ds_disk)
+                    if not key_set:
+                        key_set = set(sorted(ds_disk["data_key"].values))
         if not result:
             raise KeyError(f"Unable to load SUMMARY_DATA for keys: {summary_keys}")
         df = xr.merge(result).to_dataframe(dim_order=["data_key", "axis"])
@@ -327,13 +338,14 @@ class LocalEnsembleReader:
         loaded = []
         for realization in realizations:
             input_path = self.mount_point / f"realization-{realization}"
-            if not input_path.exists():
+            if not self._path_exists(input_path):
                 continue
 
-            with xr.open_dataset(input_path / "gen-data.nc", engine="scipy") as ds_disk:
-                np_data = ds_disk[key].as_numpy()
-                result.append(np_data)
-                loaded.append(realization)
+            with self._to_path(input_path / "gen-data.nc") as path:
+                with xr.open_dataset(path, engine="scipy") as ds_disk:
+                    np_data = ds_disk[key].as_numpy()
+                    result.append(np_data)
+                    loaded.append(realization)
         if not result:
             raise KeyError(f"Unable to load GEN_DATA for key: {key}")
         return np.stack(result).T, loaded
@@ -361,52 +373,57 @@ class LocalEnsembleReader:
         result = []
         for realization in realizations:
             input_path = self.mount_point / f"realization-{realization}"
-            if not input_path.exists():
+            if not self._path_exists(input_path):
                 raise KeyError(f"Unable to load FIELD for key: {key}")
-            data = np.load(input_path / f"{key}.npy")
+            with self._to_path(input_path / f"{key}.npy") as path:
+                data = np.load(path)
             result.append(data)
         return np.stack(result).T  # type: ignore
 
     def field_has_data(self, key: str, realization: int) -> bool:
         path = self.mount_point / f"realization-{realization}/{key}.npy"
-        return path.exists()
+        return self._path_exists(path)
 
     def field_has_info(self, key: str) -> bool:
         path = self._experiment_path / "field-info.json"
-        if not path.exists():
+        if not self._path_exists(path):
             return False
-        with open(path, encoding="utf-8", mode="r") as f:
+        with self._open(path, encoding="utf-8", mode="r") as f:
             info = json.load(f)
         return key in info
 
     def load_field_info(self, key: str) -> Dict[Any, Any]:
         path = self._experiment_path / "field-info.json"
-        if not path.exists():
+        if not self._path_exists(path):
             return {}
-        with open(path, encoding="utf-8", mode="r") as f:
+        with self._open(path, encoding="utf-8", mode="r") as f:
             info = json.load(f)
             return dict(info[key])
 
     def export_field(
         self, key: str, realization: int, output_path: Path, fformat: str
     ) -> None:
-        with open(
-            self._experiment_path / "field-info.json", encoding="utf-8", mode="r"
+        with self._open(
+            self._experiment_path / "field-info.json",
+            encoding="utf-8",
+            mode="r",
         ) as f:
             info = json.load(f)[key]
 
-        if (self._experiment_path / "field-info.egrid").exists():
-            grid = xtgeo.grid_from_file(self._experiment_path / "field-info.egrid")
+        if self._path_exists(self._experiment_path / "field-info.egrid"):
+            with self._to_path(self._experiment_path / "field-info.egrid") as path:
+                grid = xtgeo.grid_from_file(path)
         else:
             grid = None
 
         input_path = self.mount_point / f"realization-{realization}"
 
-        if not input_path.exists():
+        if not self._path_exists(input_path):
             raise KeyError(
                 f"Unable to load FIELD for key: {key}, realization: {realization} "
             )
-        data = np.load(input_path / f"{key}.npy")
+        with self._to_path(input_path / f"{key}.npy") as path:
+            data = np.load(path)
 
         data_transformed = field_transform(data, transform_name=info["transfer_out"])
         data_truncated = _field_truncate(
@@ -425,9 +442,10 @@ class LocalEnsembleReader:
             name=key,
         )
 
-        os.makedirs(Path(output_path).parent, exist_ok=True)
+        self._mkdir(Path(output_path).parent, exist_ok=True)
 
-        gp.to_file(output_path, fformat=fformat.lower())
+        with self._to_path(output_path) as path:
+            gp.to_file(output_path, fformat=fformat.lower())
 
     def export_field_many(
         self,
@@ -447,6 +465,21 @@ class LocalEnsembleReader:
                     f"realization:{realization} - export failed"
                 )
                 pass
+
+    @contextmanager
+    def _to_path(self, path: Union[os.PathLike, str]) -> Union[str, BytesIO]:
+        yield str(path)
+
+    def _path_exists(self, path: Union[os.PathLike, str]) -> bool:
+        return Path(path).exists()
+
+    def _mkdir(self, path, *args, **kwargs):
+        Path(path).mkdir(*args, **kwargs)
+
+    @contextmanager
+    def _open(self, path, *args, **kwargs):
+        with open(path, *args, **kwargs) as f:
+            yield f
 
 
 class LocalEnsembleAccessor(LocalEnsembleReader):
@@ -473,7 +506,7 @@ class LocalEnsembleAccessor(LocalEnsembleReader):
         prior_ensemble_id: Optional[UUID],
         refcase: Optional[EclSum],
     ) -> LocalEnsembleAccessor:
-        (path / "experiment").mkdir(parents=True, exist_ok=False)
+        Path(path / "experiment").mkdir(parents=True, exist_ok=False)
 
         index = _Index(
             id=uuid,
@@ -492,7 +525,7 @@ class LocalEnsembleAccessor(LocalEnsembleReader):
 
     def _save_state_map(self) -> None:
         state_map_file = self._experiment_path / "state_map.json"
-        with open(state_map_file, "w", encoding="utf-8") as f:
+        with self._open(state_map_file, "w", encoding="utf-8") as f:
             data = {"state_map": [v.value for v in self._state_map]}
             f.write(json.dumps(data))
 
@@ -513,15 +546,17 @@ class LocalEnsembleAccessor(LocalEnsembleReader):
         self, key: str, realization: int, data: Dict[str, Dict[str, Any]]
     ) -> None:
         output_path = self.mount_point / f"realization-{realization}"
-        Path.mkdir(output_path, exist_ok=True)
-        with open(output_path / f"{key}.json", "w", encoding="utf-8") as f:
+        self._mkdir(output_path, exist_ok=True)
+        with self._open(output_path / f"{key}.json", "w", encoding="utf-8") as f:
             json.dump(data, f)
 
     def save_surface_file(self, key: str, realization: int, file_name: str) -> None:
         output_path = self.mount_point / f"realization-{realization}"
-        Path.mkdir(output_path, exist_ok=True)
-        surf = xtgeo.surface_from_file(file_name, fformat="irap_ascii")
-        surf.to_file(output_path / f"{key}.irap", fformat="irap_ascii")
+        self._mkdir(output_path, exist_ok=True)
+        with self._to_path(file_name) as path:
+            surf = xtgeo.surface_from_file(path, fformat="irap_ascii")
+        with self._to_path(output_path / f"{key}.irap") as path:
+            surf.to_file(path, fformat="irap_ascii")
         self.update_realization_state(
             realization,
             [RealizationStateEnum.STATE_UNDEFINED],
@@ -536,10 +571,12 @@ class LocalEnsembleAccessor(LocalEnsembleReader):
         data: npt.NDArray[np.double],
     ) -> None:
         output_path = self.mount_point / f"realization-{realization}"
-        Path.mkdir(output_path, exist_ok=True)
-        surf = xtgeo.surface_from_file(base_file_name, fformat="irap_ascii")
+        self._mkdir(output_path, exist_ok=True)
+        with self._to_path(base_file_name) as path:
+            surf = xtgeo.surface_from_file(path, fformat="irap_ascii")
         surf.set_values1d(data, order="F")
-        surf.to_file(output_path / f"{key}.irap", fformat="irap_ascii")
+        with self._to_path(output_path / f"{key}.irap") as path:
+            surf.to_file(path, fformat="irap_ascii")
         self.update_realization_state(
             realization,
             [RealizationStateEnum.STATE_UNDEFINED],
@@ -567,7 +604,7 @@ class LocalEnsembleAccessor(LocalEnsembleReader):
         """
 
         for f in ["gen-kw-priors.json"]:
-            if not (self.mount_point / f).exists():
+            if not self._path_exists(self.mount_point / f):
                 continue
             shutil.copy(
                 src=self.mount_point / f,
@@ -589,7 +626,7 @@ class LocalEnsembleAccessor(LocalEnsembleReader):
             if not files_to_copy:
                 continue
 
-            Path.mkdir(to.mount_point / realization_folder.stem)
+            self._mkdir(to.mount_point / realization_folder.stem)
             for f in files_to_copy:
                 shutil.copy(
                     src=self.mount_point / realization_folder.stem / f,
@@ -641,11 +678,12 @@ class LocalEnsembleAccessor(LocalEnsembleReader):
                 coords={f"{parameter_name}_keys": parameter_keys},
             )
             output_path = self.mount_point / f"realization-{realization}"
-            Path.mkdir(output_path, exist_ok=True)
+            self._mkdir(output_path, exist_ok=True)
             mode: Literal["a", "w"] = (
-                "a" if Path.exists(output_path / "gen-kw.nc") else "w"
+                "a" if self._path_exists(output_path / "gen-kw.nc") else "w"
             )
-            ds.to_netcdf(output_path / "gen-kw.nc", mode=mode, engine="scipy")
+            with self._to_path(output_path / "gen-kw.nc") as path:
+                ds.to_netcdf(path, mode=mode, engine="scipy")
             self.update_realization_state(
                 realization,
                 [RealizationStateEnum.STATE_UNDEFINED],
@@ -653,13 +691,19 @@ class LocalEnsembleAccessor(LocalEnsembleReader):
             )
 
         priors = {}
-        if Path.exists(self.mount_point / "gen-kw-priors.json"):
-            with open(
-                self.mount_point / "gen-kw-priors.json", "r", encoding="utf-8"
+        if self._path_exists(self.mount_point / "gen-kw-priors.json"):
+            with self._open(
+                self.mount_point / "gen-kw-priors.json",
+                "r",
+                encoding="utf-8",
             ) as f:
                 priors = json.load(f)
         priors.update({parameter_name: parameter_transfer_functions})
-        with open(self.mount_point / "gen-kw-priors.json", "w", encoding="utf-8") as f:
+        with self._open(
+            self.mount_point / "gen-kw-priors.json",
+            "w",
+            encoding="utf-8",
+        ) as f:
             json.dump(priors, f)
 
     def save_summary_data(
@@ -670,7 +714,7 @@ class LocalEnsembleAccessor(LocalEnsembleReader):
         realization: int,
     ) -> None:
         output_path = self.mount_point / f"realization-{realization}"
-        Path.mkdir(output_path, exist_ok=True)
+        self._mkdir(output_path, exist_ok=True)
 
         ds = xr.Dataset(
             {str(realization): (("data_key", "axis"), data)},
@@ -680,16 +724,18 @@ class LocalEnsembleAccessor(LocalEnsembleReader):
             },
         )
 
-        ds.to_netcdf(output_path / "summary-data.nc", engine="scipy")
+        with self._to_path(output_path / "summary-data.nc") as path:
+            ds.to_netcdf(path, engine="scipy")
 
     def save_gen_data(self, data: Dict[str, List[float]], realization: int) -> None:
         output_path = self.mount_point / f"realization-{realization}"
-        Path.mkdir(output_path, exist_ok=True)
+        self._mkdir(output_path, exist_ok=True)
         ds = xr.Dataset(
             data,
         )
 
-        ds.to_netcdf(output_path / "gen-data.nc", engine="scipy")
+        with self._to_path(output_path / "gen-data.nc") as path:
+            ds.to_netcdf(path, engine="scipy")
 
     def save_field_info(  # pylint: disable=too-many-arguments
         self,
@@ -704,7 +750,7 @@ class LocalEnsembleAccessor(LocalEnsembleReader):
         ny: int,
         nz: int,
     ) -> None:
-        Path.mkdir(self._experiment_path, exist_ok=True)
+        self._mkdir(self._experiment_path, exist_ok=True)
         info = {
             key: {
                 "nx": nx,
@@ -717,22 +763,25 @@ class LocalEnsembleAccessor(LocalEnsembleReader):
                 "truncation_max": trunc_max,
             }
         }
-        if (
-            grid_file is not None
-            and not (self._experiment_path / "field-info.egrid").exists()
+        if grid_file is not None and not self._path_exists(
+            self._experiment_path / "field-info.egrid"
         ):
             shutil.copy(grid_file, self._experiment_path / "field-info.egrid")
 
         existing_info = {}
-        if (self._experiment_path / "field-info.json").exists():
-            with open(
-                self._experiment_path / "field-info.json", encoding="utf-8", mode="r"
+        if self._path_exists(self._experiment_path / "field-info.json"):
+            with self._open(
+                self._experiment_path / "field-info.json",
+                encoding="utf-8",
+                mode="r",
             ) as f:
                 existing_info = json.load(f)
         existing_info.update(info)
 
-        with open(
-            self._experiment_path / "field-info.json", encoding="utf-8", mode="w"
+        with self._open(
+            self._experiment_path / "field-info.json",
+            encoding="utf-8",
+            mode="w",
         ) as f:
             json.dump(existing_info, f)
 
@@ -743,8 +792,9 @@ class LocalEnsembleAccessor(LocalEnsembleReader):
         data: npt.ArrayLike,
     ) -> None:
         output_path = self.mount_point / f"realization-{realization}"
-        Path.mkdir(output_path, exist_ok=True)
-        np.save(f"{output_path}/{parameter_name}", data)
+        self._mkdir(output_path, exist_ok=True)
+        with self._to_path(f"{output_path}/{parameter_name}") as path:
+            np.save(path, data)
         self.update_realization_state(
             realization,
             [RealizationStateEnum.STATE_UNDEFINED],
