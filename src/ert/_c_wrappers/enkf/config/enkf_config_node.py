@@ -2,6 +2,7 @@ import logging
 import os
 from typing import TYPE_CHECKING, Dict, Final, List, Tuple, Union
 
+import ecl_data_io
 from cwrap import BaseCClass
 from ecl.util.util import IntVector, StringList
 
@@ -60,7 +61,7 @@ class EnkfConfigNode(BaseCClass):
     )
     _alloc_field_node = ResPrototype(
         "enkf_config_node_obj enkf_config_node_alloc_field(char*, \
-                                                           ecl_grid)",
+                                                           char*)",
         bind=False,
     )
     _get_ref = ResPrototype(
@@ -332,6 +333,27 @@ class EnkfConfigNode(BaseCClass):
                 output_transform,
                 ecl_file,
             )
+
+        ncol = 0
+        nrow = 0
+        nlay = 0
+        with open(grid, "rb") as f:
+            for entry in ecl_data_io.lazy_read(f):
+                if entry.read_keyword() == "GRIDHEAD":
+                    arr = entry.read_array()
+                    ncol = arr[1]
+                    nrow = arr[2]
+                    nlay = arr[3]
+                    break
+                if entry.read_keyword() == "DIMENS  ":
+                    arr = entry.read_array()
+                    ncol = arr[0]
+                    nrow = arr[1]
+                    nlay = arr[2]
+                    break
+
+        field_model = config_node.getFieldModelConfig()
+        field_model.set_dims(nrow, ncol, nlay)
 
         return config_node
 

@@ -19,7 +19,7 @@
 /**
    This is purely a convenience structure used during initialization,
    to denote which arguments are required and, which should be
-   defualted.
+   defaulted.
 */
 typedef enum {
     ECLIPSE_RESTART = 1,
@@ -77,37 +77,22 @@ void field_config_update_field(field_config_type *config, int truncation,
                                const char *output_field_name);
 
 extern "C" field_config_type *field_config_alloc_empty(const char *ecl_kw_name,
-                                                       ecl_grid_type *ecl_grid,
+                                                       const char *path_to_grid,
                                                        bool global_size);
 
-C_USED const char *field_config_default_extension(field_file_format_type, bool);
-void field_config_get_dims(const field_config_type *, int *, int *, int *);
 extern "C" PY_USED int field_config_get_nx(const field_config_type *config);
 extern "C" PY_USED int field_config_get_ny(const field_config_type *config);
 extern "C" PY_USED int field_config_get_nz(const field_config_type *config);
+extern "C" PY_USED void field_config_set_dims(field_config_type *config, int x, int y, int z);
+
 extern "C" void field_config_free(field_config_type *);
-int field_config_get_volume(const field_config_type *);
-extern "C" int
-field_config_get_data_size_from_grid(const field_config_type *config);
-int field_config_get_byte_size(const field_config_type *);
-int field_config_active_index(const field_config_type *, int, int, int);
-int field_config_global_index(const field_config_type *, int, int, int);
-bool field_config_ijk_valid(const field_config_type *, int, int, int);
-extern "C" bool field_config_ijk_active(const field_config_type *config, int i,
-                                        int j, int k);
-bool field_config_active_cell(const field_config_type *, int, int, int);
 field_file_format_type
 field_config_get_export_format(const field_config_type *);
-void field_config_set_key(field_config_type *, const char *);
-void field_config_enkf_OFF(field_config_type *);
-bool field_config_enkf_mode(const field_config_type *config);
 extern "C" const char *field_config_get_key(const field_config_type *);
-bool field_config_keep_inactive_cells(const field_config_type *);
-field_func_type *field_config_get_init_transform(const field_config_type *);
-field_func_type *field_config_get_output_transform(const field_config_type *);
+extern "C" field_func_type *field_config_get_init_transform(const field_config_type *);
+extern "C" field_func_type *field_config_get_input_transform(const field_config_type *);
+extern "C" field_func_type *field_config_get_output_transform(const field_config_type *);
 bool field_config_is_valid(const field_config_type *field_config);
-void field_config_assert_binary(const field_config_type *,
-                                const field_config_type *, const char *);
 
 void field_config_set_truncation(field_config_type *, int, double, double);
 extern "C" int
@@ -116,13 +101,7 @@ extern "C" double
 field_config_get_truncation_min(const field_config_type *config);
 extern "C" double
 field_config_get_truncation_max(const field_config_type *config);
-extern "C" ecl_grid_type *field_config_get_grid(const field_config_type *);
 extern "C" const char *field_config_get_grid_name(const field_config_type *);
-
-int field_config_parse_user_key(const field_config_type *config,
-                                const char *index_key, int *i, int *j, int *k);
-bool field_config_parse_user_key__(const char *index_key, int *i, int *j,
-                                   int *k);
 
 extern "C" field_file_format_type
 field_config_default_export_format(const char *filename);
@@ -132,6 +111,8 @@ extern "C" const char *
 field_config_get_output_file_name(const field_config_type *field_config);
 extern "C" const char *
 field_config_get_init_transform_name(const field_config_type *field_config);
+extern "C" const char *
+field_config_get_input_transform_name(const field_config_type *field_config);
 
 extern "C" field_type_enum
 field_config_get_type(const field_config_type *config);

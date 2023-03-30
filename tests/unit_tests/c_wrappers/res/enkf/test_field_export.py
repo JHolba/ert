@@ -16,11 +16,9 @@ def test_field_basics(snake_oil_field_example):
     ert = snake_oil_field_example
     ens_config = ert.ensembleConfig()
     fc = ens_config["PERMX"].getFieldModelConfig()
-    grid = fc.get_grid()
 
     assert repr(fc).startswith("FieldConfig(type")
     assert (fc.get_nx(), fc.get_ny(), fc.get_nz()) == (10, 10, 5)
-    assert (grid.getNX(), grid.getNY(), grid.getNZ()) == (10, 10, 5)
     assert fc.get_truncation_mode() == 0
     assert fc.get_truncation_min() == -1.0
     assert fc.get_truncation_max() == -1.0

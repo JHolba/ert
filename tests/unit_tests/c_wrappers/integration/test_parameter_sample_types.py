@@ -4,9 +4,10 @@ import stat
 from argparse import ArgumentParser
 from contextlib import ExitStack as does_not_raise
 from hashlib import sha256
+from multiprocessing import Process
 from pathlib import Path
 from textwrap import dedent
-from typing import Optional
+from typing import Optional, Tuple
 
 import numpy as np
 import pytest
@@ -616,8 +617,7 @@ def test_surface_param_update(tmpdir):
     except it uses SURFACE instead of GEN_KW.
     """
     with tmpdir.as_cwd():
-        config = dedent(
-            """
+        config = """
 NUM_REALIZATIONS 5
 QUEUE_OPTION LOCAL MAX_RUNNING 5
 OBS_CONFIG observations
@@ -626,8 +626,7 @@ GEN_DATA MY_RESPONSE RESULT_FILE:gen_data_%d.out REPORT_STEPS:0 INPUT_FORMAT:ASC
 INSTALL_JOB poly_eval POLY_EVAL
 SIMULATION_JOB poly_eval
 TIME_MAP time_map
-        """  # pylint: disable=line-too-long  # noqa: E501
-        )
+"""  # pylint: disable=line-too-long  # noqa: E501
         expect_surface = Surface(
             nx=1, ny=3, xinc=1, yinc=1, xstart=1, ystart=1, angle=0
         )
@@ -635,8 +634,7 @@ TIME_MAP time_map
 
         with open("forward_model", "w", encoding="utf-8") as f:
             f.write(
-                dedent(
-                    """#!/usr/bin/env python
+                """#!/usr/bin/env python
 from ecl.util.geometry import Surface
 import numpy as np
 import os
@@ -653,7 +651,6 @@ if __name__ == "__main__":
     with open("gen_data_0.out", "w", encoding="utf-8") as f:
         f.write("\\n".join(map(str, output)))
         """
-                )
             )
         os.chmod(
             "forward_model",
@@ -723,108 +720,10 @@ if __name__ == "__main__":
 
 @pytest.mark.integration_test
 def test_field_param_update(tmpdir):
-    """
-    This replicates the poly example, only it uses FIELD parameter
-    """
     with tmpdir.as_cwd():
-        config = dedent(
-            """
-            NUM_REALIZATIONS 5
-            OBS_CONFIG observations
+        create_poly_with_field(field_dim=(4, 4, 1), realisations=5)
+        run_poly()
 
-            FIELD MY_PARAM PARAMETER my_param.grdecl INIT_FILES:my_param.grdecl FORWARD_INIT:True
-            GRID MY_EGRID.EGRID
-
-            GEN_DATA MY_RESPONSE RESULT_FILE:gen_data_%d.out REPORT_STEPS:0 INPUT_FORMAT:ASCII
-            INSTALL_JOB poly_eval POLY_EVAL
-            SIMULATION_JOB poly_eval
-            TIME_MAP time_map
-        """  # pylint: disable=line-too-long  # noqa: E501
-        )
-        with open("config.ert", "w", encoding="utf-8") as fh:
-            fh.writelines(config)
-
-        grid = xtgeo.create_box_grid(dimension=(4, 4, 1))
-        grid.to_file("MY_EGRID.EGRID", "egrid")
-
-        with open("forward_model", "w", encoding="utf-8") as f:
-            f.write(
-                dedent(
-                    """#!/usr/bin/env python
-import xtgeo
-import numpy as np
-import os
-
-if __name__ == "__main__":
-    if not os.path.exists("my_param.grdecl"):
-        values = np.random.standard_normal(4*4)
-        with open("my_param.grdecl", "w") as fout:
-            fout.write("MY_PARAM\\n")
-            fout.write(" ".join([str(val) for val in values]) + " /\\n")
-    with open("my_param.grdecl", "r") as fin:
-        for line_nr, line in enumerate(fin):
-            if line_nr == 1:
-                a, b, c, *_ = line.split()
-
-    output = [float(a) * x**2 + float(b) * x + float(c) for x in range(10)]
-    with open("gen_data_0.out", "w", encoding="utf-8") as f:
-        f.write("\\n".join(map(str, output)))
-        """
-                )
-            )
-        os.chmod(
-            "forward_model",
-            os.stat("forward_model").st_mode
-            | stat.S_IXUSR
-            | stat.S_IXGRP
-            | stat.S_IXOTH,
-        )
-        with open("POLY_EVAL", "w", encoding="utf-8") as fout:
-            fout.write("EXECUTABLE forward_model")
-        with open("observations", "w", encoding="utf-8") as fout:
-            fout.write(
-                dedent(
-                    """
-            GENERAL_OBSERVATION MY_OBS {
-                DATA       = MY_RESPONSE;
-                INDEX_LIST = 0,2,4,6,8;
-                RESTART    = 0;
-                OBS_FILE   = obs.txt;
-            };"""
-                )
-            )
-
-        with open("obs.txt", "w", encoding="utf-8") as fobs:
-            fobs.write(
-                dedent(
-                    """
-            2.1457049781272213 0.6
-            8.769219841380755 1.4
-            12.388014786122742 3.0
-            25.600464531354252 5.4
-            42.35204755970952 8.6"""
-                )
-            )
-
-        with open("time_map", "w", encoding="utf-8") as fobs:
-            fobs.write("2014-09-10")
-
-        parser = ArgumentParser(prog="test_main")
-        parsed = ert_parser(
-            parser,
-            [
-                ENSEMBLE_SMOOTHER_MODE,
-                "--current-case",
-                "prior",
-                "--target-case",
-                "smoother_update",
-                "config.ert",
-                "--port-range",
-                "1024-65535",
-            ],
-        )
-
-        run_cli(parsed)
         ert = EnKFMain(ErtConfig.from_file("config.ert"))
         with open_storage(ert.resConfig().ens_path, mode="w") as storage:
             prior = storage.get_ensemble_by_name("prior")
@@ -838,8 +737,121 @@ if __name__ == "__main__":
             np.cov(posterior_result[:3])
         )
         # This checks that the fields in the runpath are different between iterations
-        assert Path("simulations/realization-0/iter-0/my_param.grdecl").read_text(
-            encoding="utf-8"
-        ) != Path("simulations/realization-0/iter-1/my_param.grdecl").read_text(
-            encoding="utf-8"
+        assert (
+            Path("simulations/realization-0/iter-0/my_param.bgrdecl").read_bytes()
+            != Path("simulations/realization-0/iter-1/my_param.bgrdecl").read_bytes()
         )
+
+
+@pytest.mark.integration_test
+@pytest.mark.limit_memory("100 MB")
+def test_field_param_memory(tmpdir):
+    with tmpdir.as_cwd():
+        print()
+        print(tmpdir)
+        # Setup is done in a subprocess so that memray does not pick up the allocations
+        p = Process(target=create_poly_with_field, args=((2000, 1000, 1), 2))
+        p.start()
+        p.join()  # this blocks until the process terminates
+
+        run_poly()
+
+
+def create_poly_with_field(field_dim: Tuple[int, int, int], realisations: int):
+    """
+    This replicates the poly example, only it uses FIELD parameter
+    """
+    grid_size = field_dim[0] * field_dim[1] * field_dim[2]
+    config = dedent(
+        f"""
+            NUM_REALIZATIONS {realisations}
+            OBS_CONFIG observations
+
+            FIELD MY_PARAM PARAMETER my_param.bgrdecl INIT_FILES:my_param.bgrdecl FORWARD_INIT:True
+            GRID MY_EGRID.EGRID
+
+            GEN_DATA MY_RESPONSE RESULT_FILE:gen_data_%d.out REPORT_STEPS:0 INPUT_FORMAT:ASCII
+            INSTALL_JOB poly_eval POLY_EVAL
+            SIMULATION_JOB poly_eval
+            TIME_MAP time_map
+            """  # pylint: disable=line-too-long  # noqa: E501
+    )
+    with open("config.ert", "w", encoding="utf-8") as fh:
+        fh.writelines(config)
+
+    grid = xtgeo.create_box_grid(dimension=field_dim)
+    grid.to_file("MY_EGRID.EGRID", "egrid")
+    del grid
+
+    with open("forward_model", "w", encoding="utf-8") as f:
+        f.write(
+            f"""#!/usr/bin/env python
+import numpy as np
+import os
+import ecl_data_io
+
+if __name__ == "__main__":
+    if not os.path.exists("my_param.bgrdecl"):
+        values = np.random.standard_normal({grid_size})
+        ecl_data_io.write("my_param.bgrdecl", [("MY_PARAM", values)])
+    datas = ecl_data_io.read("my_param.bgrdecl")
+    assert datas[0][0] == "MY_PARAM"
+    a,b,c,*_ = datas[0][1]
+
+    output = [float(a) * x**2 + float(b) * x + float(c) for x in range(10)]
+    with open("gen_data_0.out", "w", encoding="utf-8") as f:
+        f.write("\\n".join(map(str, output)))
+            """
+        )
+    os.chmod(
+        "forward_model",
+        os.stat("forward_model").st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH,
+    )
+    with open("POLY_EVAL", "w", encoding="utf-8") as fout:
+        fout.write("EXECUTABLE forward_model")
+    with open("observations", "w", encoding="utf-8") as fout:
+        fout.write(
+            dedent(
+                """
+        GENERAL_OBSERVATION MY_OBS {
+            DATA       = MY_RESPONSE;
+            INDEX_LIST = 0,2,4,6,8;
+            RESTART    = 0;
+            OBS_FILE   = obs.txt;
+        };"""
+            )
+        )
+
+    with open("obs.txt", "w", encoding="utf-8") as fobs:
+        fobs.write(
+            dedent(
+                """
+        2.1457049781272213 0.6
+        8.769219841380755 1.4
+        12.388014786122742 3.0
+        25.600464531354252 5.4
+        42.35204755970952 8.6"""
+            )
+        )
+
+    with open("time_map", "w", encoding="utf-8") as fobs:
+        fobs.write("2014-09-10")
+
+
+def run_poly():
+    parser = ArgumentParser(prog="test_main")
+    parsed = ert_parser(
+        parser,
+        [
+            ENSEMBLE_SMOOTHER_MODE,
+            "--current-case",
+            "prior",
+            "--target-case",
+            "smoother_update",
+            "config.ert",
+            "--port-range",
+            "1024-65535",
+        ],
+    )
+
+    run_cli(parsed)

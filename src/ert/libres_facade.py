@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Union
 
-from ecl.grid import EclGrid
+import numpy as np
 from pandas import DataFrame, Series
 
 from ert._c_wrappers.enkf import EnKFMain, EnsembleConfig, ErtConfig, ErtImplType
@@ -15,6 +15,8 @@ from ert._c_wrappers.enkf.enums import (
 from ert.analysis import ESUpdate, SmootherSnapshot
 from ert.analysis._es_update import _get_obs_and_measure_data
 from ert.data import MeasuredData
+
+# from src.ert.storage.read_mask import readMask
 
 _logger = logging.getLogger(__name__)
 
@@ -109,8 +111,9 @@ class LibresFacade:  # pylint: disable=too-many-public-methods
         return self._enkf_main.ensembleConfig().grid_file
 
     @property
-    def grid(self) -> Optional[EclGrid]:
-        return self._enkf_main.ensembleConfig().grid
+    def grid(self) -> Optional[np.ma.MaskedArray]:
+        # grid, _ = readMask(self._enkf_main.ensembleConfig().grid)
+        return None  # grid
 
     @property
     def ensemble_config(self) -> EnsembleConfig:

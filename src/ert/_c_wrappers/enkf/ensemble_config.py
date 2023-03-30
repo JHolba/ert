@@ -7,8 +7,6 @@ from dataclasses import dataclass
 from typing import Dict, List, Optional, Union
 
 from cwrap import BaseCClass
-from ecl.ecl_util import EclFileEnum, get_file_type
-from ecl.grid import EclGrid
 from ecl.summary import EclSum
 from ecl.util.util import StringList
 
@@ -158,18 +156,6 @@ class EnsembleConfig(BaseCClass):
     )
 
     @staticmethod
-    def _load_grid(grid_file: Optional[str]) -> Optional[EclGrid]:
-        if grid_file is None:
-            return None
-        ecl_grid_file_types = [
-            EclFileEnum.ECL_GRID_FILE,
-            EclFileEnum.ECL_EGRID_FILE,
-        ]
-        if get_file_type(grid_file) not in ecl_grid_file_types:
-            raise ValueError(f"grid file {grid_file} does not have expected type")
-        return EclGrid.load_from_file(grid_file)
-
-    @staticmethod
     def _load_refcase(refcase_file: Optional[str]) -> Optional[EclSum]:
         """
         If the user has not given a refcase_file it will be
@@ -220,7 +206,7 @@ class EnsembleConfig(BaseCClass):
 
         self._grid_file = grid_file
         self._refcase_file = ref_case_file
-        self.grid: Optional[EclGrid] = self._load_grid(grid_file)
+        self.grid: Optional[str] = grid_file
         self.refcase: Optional[EclSum] = self._load_refcase(ref_case_file)
         self._gen_kw_tag_format = tag_format
         c_ptr = self._alloc_full(self._gen_kw_tag_format)
@@ -383,7 +369,7 @@ class EnsembleConfig(BaseCClass):
         )
 
     @staticmethod
-    def get_field_node(field: Union[dict, list], grid: EclGrid) -> EnkfConfigNode:
+    def get_field_node(field: Union[dict, list], grid: str) -> EnkfConfigNode:
         name = field[0]
         var_type_string = field[1]
         out_file = field[2]

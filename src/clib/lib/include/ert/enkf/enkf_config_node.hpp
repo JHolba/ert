@@ -58,7 +58,7 @@ enkf_config_node_alloc_GEN_DATA_everest(const char *key,
                                         const int_vector_type *report_steps);
 
 extern "C" enkf_config_node_type *
-enkf_config_node_alloc_field(const char *key, ecl_grid_type *ecl_grid);
+enkf_config_node_alloc_field(const char *key, const char *ecl_grid);
 extern "C" const stringlist_type *
 enkf_config_node_get_obs_keys(const enkf_config_node_type *);
 extern "C" void enkf_config_node_free(enkf_config_node_type *);

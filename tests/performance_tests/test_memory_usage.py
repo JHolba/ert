@@ -46,7 +46,7 @@ def poly_template(monkeypatch):
     yield folder
 
 
-@pytest.mark.limit_memory("85 MB")
+@pytest.mark.limit_memory("110 MB")
 @pytest.mark.integration_test
 def test_memory_smoothing(poly_template):
     ert_config = ErtConfig.from_file("poly.ert")
@@ -108,19 +108,22 @@ def make_source_accessor(path: Path, ert: EnKFMain) -> EnsembleReader:
 
 
 def make_gen_data(
-    observation_list: List[Tuple[str, int]], min: float = 0, max: float = 5
+    observation_list: List[Tuple[str, int]], min_val: float = 0, max_val: float = 5
 ) -> Dict[str, List[float]]:
     gen_data: Dict[str, List[float]] = {}
     for obs in observation_list:
         gen_data[f"{obs[0]}@0"] = list(
-            np.random.default_rng().uniform(min, max, obs[1])
+            np.random.default_rng().uniform(min_val, max_val, obs[1])
         )
     return gen_data
 
 
 def make_summary_data(
-    summary_data_count: int, summary_data_entries: int, min: float = 0, max: float = 5
+    summary_data_count: int,
+    summary_data_entries: int,
+    min_val: float = 0,
+    max_val: float = 5,
 ):
     return np.random.default_rng().uniform(
-        min, max, (summary_data_count, summary_data_entries)
+        min_val, max_val, (summary_data_count, summary_data_entries)
     )

@@ -114,8 +114,7 @@ enkf_config_node_alloc_GEN_DATA_result(const char *key,
    valid. Mainly support code for the GUI.
 */
 enkf_config_node_type *enkf_config_node_alloc_field(const char *key,
-                                                    ecl_grid_type *ecl_grid) {
-
+                                                    const char *ecl_grid) {
     enkf_config_node_type *config_node = enkf_config_node_alloc__(FIELD, key);
     config_node->data = field_config_alloc_empty(key, ecl_grid, false);
     return config_node;

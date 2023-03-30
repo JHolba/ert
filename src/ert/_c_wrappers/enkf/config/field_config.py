@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from cwrap import BaseCClass
-from ecl.grid import EclGrid
 
 from ert._c_wrappers import ResPrototype
 from ert._c_wrappers.enkf.enums import EnkfFieldFileFormatEnum, EnkfTruncationType
@@ -13,9 +12,8 @@ class FieldConfig(BaseCClass):
     TYPE_NAME = "field_config"
 
     _alloc = ResPrototype(
-        "void*  field_config_alloc_empty(char* , ecl_grid , bool)", bind=False
+        "void*  field_config_alloc_empty(char* , char* , bool)", bind=False
     )
-    _free = ResPrototype("void   field_config_free( field_config )")
     _get_type = ResPrototype("field_type_enum field_config_get_type(field_config)")
     _get_truncation_mode = ResPrototype(
         "int    field_config_get_truncation_mode(field_config)"
@@ -32,17 +30,11 @@ class FieldConfig(BaseCClass):
     _get_output_transform_name = ResPrototype(
         "char*  field_config_get_output_transform_name(field_config)"
     )
-    _ijk_active = ResPrototype(
-        "bool   field_config_ijk_active(field_config, int, int, int)"
-    )
     _get_nx = ResPrototype("int    field_config_get_nx(field_config)")
     _get_ny = ResPrototype("int    field_config_get_ny(field_config)")
     _get_nz = ResPrototype("int    field_config_get_nz(field_config)")
-    _get_grid = ResPrototype("ecl_grid_ref field_config_get_grid(field_config)")
+    _set_dims = ResPrototype("void field_config_set_dims(field_config, int, int, int)")
     _get_grid_name = ResPrototype("char* field_config_get_grid_name(field_config)")
-    _get_data_size = ResPrototype(
-        "int field_config_get_data_size_from_grid(field_config)"
-    )
     _export_file = ResPrototype(
         "char*  field_config_get_output_file_name(field_config)"
     )
@@ -100,24 +92,15 @@ class FieldConfig(BaseCClass):
     def get_nz(self) -> int:
         return self._get_nz()
 
-    def get_data_size(self) -> int:
-        return self._get_data_size()
-
-    def get_grid(self) -> EclGrid:
-        return self._get_grid()
+    def set_dims(self, x, y, z) -> None:
+        self._set_dims(x, y, z)
 
     def get_grid_name(self) -> str:
         return self._get_grid_name()
 
-    def ijk_active(self, i, j, k) -> bool:
-        return self._ijk_active(i, j, k)
-
     @property
     def export_file(self):
         return self._export_file()
-
-    def free(self) -> None:
-        self._free()
 
     def __repr__(self) -> str:
         return self._create_repr(

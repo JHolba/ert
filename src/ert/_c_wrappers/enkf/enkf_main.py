@@ -8,13 +8,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Mapping, Optional, Sequence, Union
 
-import cwrap
 import numpy as np
-import xtgeo
-from ecl.eclfile import EclKW
-from ecl.grid import EclGrid
 from jinja2 import Template
-from numpy import ma
 
 from ert._c_wrappers.analysis.configuration import UpdateConfiguration
 from ert._c_wrappers.enkf.analysis_config import AnalysisConfig
@@ -29,6 +24,7 @@ from ert._c_wrappers.enkf.queue_config import QueueConfig
 from ert._c_wrappers.enkf.runpaths import Runpaths
 from ert._c_wrappers.util.substitution_list import SubstitutionList
 from ert._clib import trans_func  # noqa: no_type_check
+from ert.storage.read_mask import readMaskedField
 
 if TYPE_CHECKING:
     import numpy.typing as npt
@@ -440,36 +436,21 @@ class EnKFMain:
                 for _, realization_nr in enumerate(active_realizations):
                     init_file = self.ensembleConfig().get_init_file_fmt(parameter)
                     if "%d" in init_file:
-                        init_file = init_file % realization_nr
-
-                    grid = ensemble.experiment.grid
-                    if isinstance(grid, xtgeo.Grid):
-                        try:
-                            props = xtgeo.gridproperty_from_file(
-                                init_file,
-                                name=parameter,
-                                grid=grid,
-                            )
-                            data = props.get_npvalues1d(order="C", fill_value=np.nan)
-                        except PermissionError as err:
-                            context_message = (
-                                f"Failed to open init file for parameter {parameter!r}"
-                            )
-                            raise RuntimeError(context_message) from err
-                    elif isinstance(grid, EclGrid):
-                        with cwrap.open(init_file, "rb") as f:
-                            param = EclKW.read_grdecl(f, parameter)
-
-                        mask = [not e for e in grid.export_actnum()]
-                        masked_array = ma.MaskedArray(
-                            data=param.numpy_view(), mask=mask, fill_value=np.nan
-                        )  # type: ignore
-                        data = masked_array.filled()  # type: ignore
+                        init_file %= realization_nr
+                    grid_file = ensemble.experiment.grid
+                    assert grid_file is not None
+                    try:
+                        data = readMaskedField(init_file, parameter, grid_file)
+                    except PermissionError as err:
+                        context_message = (
+                            f"Failed to open init file for parameter {parameter!r}"
+                        )
+                        raise RuntimeError(context_message) from err
 
                     field_config = config_node.getFieldModelConfig()
                     trans = field_config.get_init_transform_name()
-                    data_transformed = field_transform(data, trans)
-                    ensemble.save_field(parameter, realization_nr, data_transformed)
+                    data = field_transform(data, trans)
+                    ensemble.save_field(parameter, realization_nr, data)
 
             elif impl_type == ErtImplType.GEN_KW:
                 gen_kw_config = config_node.getKeywordModelConfig()
@@ -504,7 +485,7 @@ class EnKFMain:
                 for realization_nr in active_realizations:
                     init_file = self.ensembleConfig().get_init_file_fmt(parameter)
                     if init_file and "%d" in init_file:
-                        init_file = init_file % realization_nr
+                        init_file %= realization_nr
                     ensemble.save_surface_file(
                         config_node.getKey(), realization_nr, init_file
                     )
@@ -523,7 +504,7 @@ class EnKFMain:
         ensemble.sync()
 
     def rng(self) -> np.random.Generator:
-        "Will return the random number generator used for updates."
+        """Will return the random number generator used for updates."""
         return self._shared_rng
 
     def createRunPath(self, run_context: RunContext) -> None:

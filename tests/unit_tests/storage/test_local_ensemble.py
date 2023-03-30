@@ -31,6 +31,8 @@ def test_save_field_xtgeo(tmp_path):
 
         loaded_data = numpy.load(saved_file)
         expected_data = data[:-1] + [numpy.nan] * 12 + [data[3]]
+        expected_data = numpy.asarray(expected_data)
+        expected_data = expected_data.reshape(4, 4, 1)
         numpy.testing.assert_array_equal(loaded_data, expected_data)
 
 
@@ -41,8 +43,8 @@ def test_save_field_ecl(tmp_path):
         ensemble_dir = tmp_path / "ensembles" / str(ensemble.id)
         assert ensemble_dir.exists()
 
-        mask = [True] * 3 + [False] * 12 + [True]
-        grid = EclGrid.create_rectangular((4, 4, 1), (1, 1, 1), actnum=mask)
+        mask = [True] * 3 + [False] * 16 + [True]
+        grid = EclGrid.create_rectangular((4, 5, 1), (1, 1, 1), actnum=mask)
         grid.save_GRID(f"{experiment.mount_point}/grid.GRID")
 
         data = [1.2, 1.1, 4.3, 3.1]
@@ -57,5 +59,7 @@ def test_save_field_ecl(tmp_path):
         assert saved_file.exists()
 
         loaded_data = numpy.load(saved_file)
-        expected_data = data[:-1] + [numpy.nan] * 12 + [data[3]]
+        expected_data = data[:-1] + [numpy.nan] * 16 + [data[3]]
+        expected_data = numpy.asarray(expected_data)
+        expected_data = expected_data.reshape(4, 5, 1, order="F")
         numpy.testing.assert_array_equal(loaded_data, expected_data)

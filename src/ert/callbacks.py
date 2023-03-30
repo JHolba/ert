@@ -2,17 +2,11 @@ import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Tuple
 
-import cwrap
-import numpy as np
-import xtgeo
-from ecl.eclfile import EclKW
-from ecl.grid import EclGrid
-from numpy import ma
-
 from ert._c_wrappers.enkf.enkf_main import field_transform
 from ert._c_wrappers.enkf.enkf_state import _internalize_results
 from ert._c_wrappers.enkf.enums import ErtImplType, RealizationStateEnum
 from ert._c_wrappers.enkf.model_callbacks import LoadStatus
+from ert.storage.read_mask import readMaskedField
 
 if TYPE_CHECKING:
     from ert._c_wrappers.enkf import EnsembleConfig, RunArg
@@ -56,28 +50,19 @@ def forward_model_ok(
                         # Already initialised, ignore
                         continue
 
-                    grid = run_arg.ensemble_storage.experiment.grid
-                    if isinstance(grid, xtgeo.Grid):
-                        try:
-                            props = xtgeo.gridproperty_from_file(
-                                pfile=file_path,
-                                name=key,
-                                grid=grid,
-                            )
-                            data = props.get_npvalues1d(order="C", fill_value=np.nan)
-                        except PermissionError as err:
-                            msg = f"Failed to open init file for parameter {key}"
-                            raise RuntimeError(msg) from err
-                    elif isinstance(grid, EclGrid):
-                        with cwrap.open(str(file_path), "rb") as f:
-                            param = EclKW.read_grdecl(f, config_node.getKey())
-                        mask = [not e for e in grid.export_actnum()]
-                        masked_array = ma.MaskedArray(
-                            data=param.numpy_view(), mask=mask, fill_value=np.nan
-                        )
-                        data = masked_array.filled()
-
                     field_config = config_node.getFieldModelConfig()
+
+                    data = readMaskedField(
+                        file_path,
+                        key,
+                        ens_conf.grid_file,
+                        (
+                            field_config.get_nx(),
+                            field_config.get_ny(),
+                            field_config.get_nz(),
+                        ),
+                    )
+
                     trans = field_config.get_init_transform_name()
                     data_transformed = field_transform(data, trans)
                     run_arg.ensemble_storage.save_field(
