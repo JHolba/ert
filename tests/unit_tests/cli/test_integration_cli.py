@@ -502,6 +502,7 @@ def test_that_prior_is_not_overwritten_in_ensemble_experiment(
     ],
 )
 @pytest.mark.usefixtures("copy_poly_case")
+@pytest.mark.integration_test
 def test_that_the_cli_raises_exceptions_when_parameters_are_missing(mode):
     with open("poly.ert", "r", encoding="utf-8") as fin, open(
         "poly-no-gen-kw.ert", "w", encoding="utf-8"
@@ -538,6 +539,7 @@ def test_that_the_cli_raises_exceptions_when_parameters_are_missing(mode):
 
 
 @pytest.mark.usefixtures("copy_poly_case")
+@pytest.mark.integration_test
 def test_that_the_cli_raises_exceptions_when_no_weight_provided_for_es_mda():
     args = Mock()
     args.config = "poly.ert"
@@ -566,6 +568,7 @@ def test_that_the_cli_raises_exceptions_when_no_weight_provided_for_es_mda():
         run_cli(parsed)
 
 
+@pytest.mark.integration_test
 def test_ert_config_parser_fails_gracefully_on_unreadable_config_file(
     copy_case, caplog
 ):
@@ -578,6 +581,7 @@ def test_ert_config_parser_fails_gracefully_on_unreadable_config_file(
         ErtConfig.from_file(config_file_name)
 
 
+@pytest.mark.integration_test
 def test_field_init_file_not_readable(copy_case, monkeypatch):
     monkeypatch.setattr(
         ensemble_evaluator._wait_for_evaluator, "WAIT_FOR_EVALUATOR_TIMEOUT", 5
@@ -593,6 +597,7 @@ def test_field_init_file_not_readable(copy_case, monkeypatch):
         assert "Permission denied:" in str(err)
 
 
+@pytest.mark.integration_test
 def test_surface_init_fails_during_forward_model_callback(copy_case):
     copy_case("snake_oil_field")
     config_file_name = "snake_oil_surface.ert"
@@ -616,6 +621,7 @@ def test_surface_init_fails_during_forward_model_callback(copy_case):
         assert f"Failed to initialize parameter {parameter_name!r}" in str(err)
 
 
+@pytest.mark.integration_test
 def test_unopenable_observation_config_fails_gracefully(copy_case):
     copy_case("snake_oil_field")
     config_file_name = "snake_oil_field.ert"
@@ -660,6 +666,7 @@ def run_ert_test_run(config_file: str) -> None:
     ],
 )
 @pytest.mark.usefixtures("copy_poly_case")
+@pytest.mark.integration_test
 def test_that_the_model_raises_exception_if_active_less_than_minimum_realizations(mode):
     """
     Verify that the run model checks that active realizations 20 is less than 100
@@ -703,6 +710,7 @@ def test_that_the_model_raises_exception_if_active_less_than_minimum_realization
 
 
 @pytest.mark.usefixtures("copy_poly_case")
+@pytest.mark.integration_test
 def test_that_the_model_warns_when_active_realizations_less_min_realizations():
     """
     Verify that the run model checks that active realizations is equal or higher than
