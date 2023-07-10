@@ -189,16 +189,32 @@ class EnsembleConfig:
             if init_file is not None:
                 init_file = os.path.abspath(init_file)
 
+            parameter_file = _get_abs_path(gen_kw[3])
+            if not os.path.isfile(parameter_file):
+                raise ConfigValidationError(f"No such parameter file: {parameter_file}")
+
+            template_file = _get_abs_path(gen_kw[1])
+            if not os.path.isfile(template_file):
+                raise ConfigValidationError(f"No such template file: {template_file}")
+
+            transfer_function_definitions: List[str] = []
+            with open(parameter_file, "r", encoding="utf-8") as file:
+                for item in file:
+                    item = item.rsplit("--")[0]  # remove comments
+                    if item.strip():  # only lines with content
+                        transfer_function_definitions.append(item)
+
             kw_node = GenKwConfig(
                 name=gen_kw_key,
                 forward_init=forward_init,
-                template_file=_get_abs_path(gen_kw[1]),
-                parameter_file=_get_abs_path(gen_kw[3]),
+                template_file=template_file,
                 output_file=gen_kw[2],
+                parameter_file=parameter_file,
                 forward_init_file=init_file,
+                transfer_function_definitions=transfer_function_definitions,
             )
 
-            self._check_config_node(kw_node)
+            self._check_config_node(kw_node, parameter_file)
             self.addNode(kw_node)
 
         for surface in surface_list:
@@ -419,7 +435,7 @@ class EnsembleConfig:
         )
 
     @staticmethod
-    def _check_config_node(node: GenKwConfig):
+    def _check_config_node(node: GenKwConfig, parameter_file: str):
         errors = []
 
         def _check_non_negative_parameter(param: str):
@@ -440,10 +456,9 @@ class EnsembleConfig:
                 _check_non_negative_parameter("STD")
         if errors:
             raise ConfigValidationError(
-                config_file=node.getParameterFile(),
+                config_file=parameter_file,
                 errors=[
-                    ErrorInfo(message=str(e), filename=node.getParameterFile())
-                    for e in errors
+                    ErrorInfo(message=str(e), filename=parameter_file) for e in errors
                 ],
             )
 

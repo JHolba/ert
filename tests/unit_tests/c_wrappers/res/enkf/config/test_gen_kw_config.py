@@ -1,3 +1,4 @@
+import os
 import re
 from pathlib import Path
 from textwrap import dedent
@@ -10,55 +11,27 @@ from ert.parsing import ConfigValidationError
 
 @pytest.mark.usefixtures("use_tmpdir")
 def test_gen_kw_config():
-    with open("template.txt", "w", encoding="utf-8") as f:
-        f.write("Hello")
-
-    with open("parameters.txt", "w", encoding="utf-8") as f:
-        f.write("KEY  UNIFORM 0 1 \n")
-
-    with open("parameters_with_comments.txt", "w", encoding="utf-8") as f:
-        f.write("KEY1  UNIFORM 0 1 -- COMMENT\n")
-        f.write("\n\n")  # Two blank lines
-        f.write("KEY2  UNIFORM 0 1\n")
-        f.write("--KEY3  \n")
-        f.write("KEY3  UNIFORM 0 1\n")
-
-    template_file = "template.txt"
-    parameter_file = "parameters.txt"
-    parameter_file_comments = "parameters_with_comments.txt"
-    with pytest.raises(ConfigValidationError):
-        GenKwConfig(
-            name="KEY",
-            forward_init=False,
-            template_file=template_file,
-            parameter_file="does_not_exist.txt",
-            output_file="kw.txt",
-        )
-
-    with pytest.raises(ConfigValidationError):
-        GenKwConfig(
-            name="KEY",
-            forward_init=False,
-            template_file=template_file,
-            parameter_file="does_not_exist.txt",
-            output_file="kw.txt",
-        )
-
     GenKwConfig(
         name="KEY",
         forward_init=False,
-        template_file=template_file,
-        parameter_file=parameter_file,
+        template_file="",
+        parameter_file="",
+        transfer_function_definitions=["KEY  UNIFORM 0 1"],
         output_file="kw.txt",
     )
     conf = GenKwConfig(
         name="KEY",
         forward_init=False,
-        template_file=template_file,
-        parameter_file=parameter_file_comments,
+        template_file="",
+        parameter_file="",
+        transfer_function_definitions=[
+            "KEY1  UNIFORM 0 1",
+            "KEY2 UNIFORM 0 1",
+            "KEY3 UNIFORM 0 1",
+        ],
         output_file="kw.txt",
     )
-    assert len(conf) == 3
+    assert len(conf.transfer_functions) == 3
 
 
 @pytest.mark.usefixtures("use_tmpdir")
@@ -81,15 +54,21 @@ def test_gen_kw_config_get_priors():
         f.write("KEY9  LOGUNIF 0 1\n")
         f.write("KEY10  CONST 10\n")
 
+    transfer_function_definitions = []
+    with open(parameter_file, "r", encoding="utf-8") as file:
+        for item in file:
+            transfer_function_definitions.append(item)
+
     conf = GenKwConfig(
         name="KW_NAME",
         forward_init=False,
         template_file=template_file,
         parameter_file=parameter_file,
+        transfer_function_definitions=transfer_function_definitions,
         output_file="param.txt",
     )
     priors = conf.get_priors()
-    assert len(conf) == 10
+    assert len(conf.transfer_functions) == 10
 
     assert {
         "key": "KEY1",
@@ -305,9 +284,9 @@ def test_gen_kw_params_parsing(tmpdir, params, error):
     with tmpdir.as_cwd():
         if error:
             with pytest.raises(ConfigValidationError, match=error):
-                GenKwConfig.parse_transfer_function(params)
+                GenKwConfig._parse_transfer_function(params)
         else:
-            GenKwConfig.parse_transfer_function(params)
+            GenKwConfig._parse_transfer_function(params)
 
 
 @pytest.mark.parametrize(
@@ -383,7 +362,7 @@ def test_gen_kw_trans_func(tmpdir, params, xinput, expected):
         float_args.append(float(a))
 
     with tmpdir.as_cwd():
-        tf = GenKwConfig.parse_transfer_function(params)
+        tf = GenKwConfig._parse_transfer_function(params)
         assert abs(tf.calculate(xinput, float_args) - expected) < 10**-15
 
 
@@ -409,17 +388,27 @@ def test_gen_kw_objects_equal(tmpdir):
         ert = EnKFMain(ert_config)
 
         g1 = ert.ensembleConfig()["KW_NAME"]
+        assert g1.transfer_functions[0].name == "MY_KEYWORD"
+
         g2 = GenKwConfig(
             name="KW_NAME",
             forward_init=False,
             template_file="template.txt",
+            transfer_function_definitions=["MY_KEYWORD UNIFORM 1 2\n"],
             parameter_file="prior.txt",
             output_file="kw.txt",
         )
+        assert g1.name == g2.name
+        assert os.path.abspath(g1.template_file) == os.path.abspath(g2.template_file)
+        assert os.path.abspath(g1.parameter_file) == os.path.abspath(g2.parameter_file)
+        assert g1.output_file == g2.output_file
+        assert g1.forward_init_file == g2.forward_init_file
+
         g3 = GenKwConfig(
             name="KW_NAME2",
             forward_init=False,
             template_file="template.txt",
+            transfer_function_definitions=["MY_KEYWORD UNIFORM 1 2\n"],
             parameter_file="prior.txt",
             output_file="kw.txt",
         )
@@ -427,6 +416,7 @@ def test_gen_kw_objects_equal(tmpdir):
             name="KW_NAME",
             forward_init=False,
             template_file="empty.txt",
+            transfer_function_definitions=["MY_KEYWORD UNIFORM 1 2\n"],
             parameter_file="prior.txt",
             output_file="kw.txt",
         )
@@ -434,6 +424,7 @@ def test_gen_kw_objects_equal(tmpdir):
             name="KW_NAME",
             forward_init=False,
             template_file="template.txt",
+            transfer_function_definitions=[],
             parameter_file="empty.txt",
             output_file="kw.txt",
         )
@@ -442,11 +433,11 @@ def test_gen_kw_objects_equal(tmpdir):
             forward_init=False,
             template_file="template.txt",
             parameter_file="prior.txt",
+            transfer_function_definitions=[],
             output_file="empty.txt",
         )
-        assert g1 == g2
+
         assert g1 != g3
         assert g1 != g4
         assert g1 != g5
         assert g1 != g6
-        assert g1.getKeyWords() == ["MY_KEYWORD"]

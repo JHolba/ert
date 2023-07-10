@@ -4,6 +4,7 @@ import logging
 import os
 import time
 from dataclasses import dataclass
+from functools import cached_property
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional
 
@@ -16,7 +17,7 @@ from ert.storage.field_utils import field_utils
 if TYPE_CHECKING:
     import numpy.typing as npt
 
-    from ert.storage import EnsembleAccessor, EnsembleReader
+    from ert.storage import EnsembleReader
 
 _logger = logging.getLogger(__name__)
 
@@ -34,8 +35,9 @@ class Field(ParameterConfig):
     forward_init_file: str
     output_file: Path
     grid_file: str
+    mask_file: Path = None
 
-    def load(self, run_path: Path, real_nr: int, ensemble: EnsembleAccessor):
+    def read_from_runpath(self, run_path: Path, real_nr: int) -> xr.Dataset:
         t = time.perf_counter()
         file_name = self.forward_init_file
         if "%d" in file_name:
@@ -43,30 +45,49 @@ class Field(ParameterConfig):
         file_path = run_path / file_name
 
         key = self.name
-        grid_path = ensemble.experiment.grid_path
-        data = field_utils.get_masked_field(file_path, key, grid_path)
+        data = field_utils.read_field(
+            file_path, key, self.mask, field_utils.Shape(self.nx, self.ny, self.nz)
+        )
 
         trans = self.input_transformation
         data_transformed = field_transform(data, trans)
-        ds = field_utils.create_field_dataset(grid_path, data_transformed)
-        ensemble.save_parameters(key, real_nr, ds)
+        ds = xr.Dataset({"values": (["x", "y", "z"], data_transformed)})
         _logger.debug(f"load() time_used {(time.perf_counter() - t):.4f}s")
+        return ds
 
-    def save(self, run_path: Path, real_nr: int, ensemble: EnsembleReader):
+    def write_to_runpath(self, run_path: Path, real_nr: int, ensemble: EnsembleReader):
         t = time.perf_counter()
         file_out = run_path.joinpath(self.output_file)
         if os.path.islink(file_out):
             os.unlink(file_out)
-        param_info = ensemble.experiment.parameter_info[self.name]
-        export_field(
-            self.name,
-            real_nr,
-            file_out,
-            param_info,
-            ensemble.mount_point,
-            ensemble.experiment.grid_path,
+
+        data = ensemble.load_parameters(self.name, real_nr)
+        data = field_transform(data, transform_name=self.output_transformation)
+        data = _field_truncate(
+            data,
+            self.truncation_min,
+            self.truncation_max,
         )
+        data = np.ma.MaskedArray(data, self.mask, fill_value=np.nan)
+        field_utils.save_field(
+            data,
+            self.name,
+            file_out,
+            self.file_format,
+        )
+
         _logger.debug(f"save() time_used {(time.perf_counter() - t):.4f}s")
+
+    def save_experiment_data(self, experiment_path):
+        mask_path = experiment_path / "grid_mask.npy"
+        if not mask_path.exists():
+            mask, _ = field_utils.get_mask(self.grid_file)
+            np.save(mask_path, mask)
+        self.mask_file = mask_path
+
+    @cached_property
+    def mask(self):
+        return np.load(self.mask_file)
 
 
 # pylint: disable=unnecessary-lambda
@@ -101,37 +122,3 @@ def _field_truncate(data: npt.ArrayLike, min_: float, max_: float) -> Any:
         vfunc = np.vectorize(lambda x: min(x, max_))
         return vfunc(data)
     return data
-
-
-def export_field(
-    key: str,
-    realization: int,
-    output_path: Path,
-    param_info: str,
-    mount_point: Path,
-    grid_path: Path,
-) -> None:
-    data_path = mount_point / f"realization-{realization}"
-
-    if not data_path.exists():
-        raise KeyError(
-            f"Unable to load FIELD for key: {key}, realization: {realization} "
-        )
-    da = xr.open_dataarray(data_path / f"{key}.nc", engine="scipy")
-    # Squeeze to get rid of realization-dimension
-    data: npt.NDArray[np.double] = da.values.squeeze(axis=0)
-    data = field_transform(data, transform_name=param_info["output_transformation"])
-    data = _field_truncate(
-        data,
-        param_info["truncation_min"],
-        param_info["truncation_max"],
-    )
-
-    field_utils.save_field(
-        data,
-        key,
-        grid_path,
-        field_utils.Shape(param_info["nx"], param_info["ny"], param_info["nz"]),
-        output_path,
-        param_info["file_format"],
-    )

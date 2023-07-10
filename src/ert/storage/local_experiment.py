@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import shutil
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, Generator, List, Optional, Union
 from uuid import UUID
@@ -42,24 +41,8 @@ class LocalExperimentReader:
         return self._id
 
     @property
-    def grid_path(self) -> Optional[Path]:
-        if (self._path / "grid.EGRID").exists():
-            return self._path / "grid.EGRID"
-        if (self._path / "grid.GRID").exists():
-            return self._path / "grid.GRID"
-        return None
-
-    @property
     def mount_point(self) -> Path:
         return self._path
-
-    @property
-    def gen_kw_info(self) -> Dict[str, Any]:
-        return {
-            k: v["priors"]
-            for (k, v) in self.parameter_info.items()
-            if v["_ert_kind"] == "GenKwConfig"
-        }
 
     @property
     def parameter_info(self) -> Dict[str, Any]:
@@ -75,6 +58,14 @@ class LocalExperimentReader:
         return xtgeo.surface_from_file(
             str(self.mount_point / f"{name}.irap"), fformat="irap_ascii"
         )
+
+    @property
+    def parameter_configuration(self) -> Dict[str, ParameterConfig]:
+        params = {}
+        for data in self.parameter_info.values():
+            param_type = data.pop("_ert_kind")
+            params[data["name"]] = _KNOWN_PARAMETER_TYPES[param_type](**data)
+        return params
 
 
 class LocalExperimentAccessor(LocalExperimentReader):
@@ -99,27 +90,11 @@ class LocalExperimentAccessor(LocalExperimentReader):
                 parameter_data = json.load(f)
 
         for parameter in parameters:
+            parameter.save_experiment_data(self._path)
             parameter_data.update({parameter.name: parameter.to_dict()})
-
-            if isinstance(parameter, Field) and parameter.grid_file is not None:
-                # Grid file is shared between all FIELD keywords, so we can avoid
-                # copying for each FIELD keyword.
-                grid_filename = "grid" + Path(parameter.grid_file).suffix.upper()
-                if not (self._path / grid_filename).exists():
-                    shutil.copy(parameter.grid_file, self._path / grid_filename)
 
         with open(self.mount_point / self._parameter_file, "w", encoding="utf-8") as f:
             json.dump(parameter_data, f)
-
-    @property
-    def parameter_configuration(self) -> List[ParameterConfig]:
-        params = []
-        for data in self.parameter_info.values():
-            param_type = data.pop("_ert_kind")
-            if param_type == "GenKwConfig":
-                continue
-            params.append(_KNOWN_PARAMETER_TYPES[param_type](**data))
-        return params
 
     @property
     def ensembles(self) -> Generator[LocalEnsembleAccessor, None, None]:

@@ -5,12 +5,14 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
+import xarray as xr
+
 if TYPE_CHECKING:
     from typing import Any, Dict
 
     from numpy.random import SeedSequence
 
-    from ert.storage import EnsembleAccessor, EnsembleReader
+    from ert.storage import EnsembleReader
 
 
 class CustomDict(dict):
@@ -33,27 +35,41 @@ class ParameterConfig(ABC):
     def sample_or_load(
         self,
         real_nr: int,
-        ensemble: EnsembleAccessor,
         random_seed: SeedSequence,
-    ):
-        return self.load(Path(), real_nr, ensemble)
+        ensemble_size: int,
+    ) -> xr.Dataset:
+        return self.read_from_runpath(Path(), real_nr)
 
     @abstractmethod
-    def load(
+    def read_from_runpath(
         self,
         run_path: Path,
         real_nr: int,
-        ensemble: EnsembleAccessor,
-    ):
+    ) -> xr.Dataset:
+        """
+        This function is responsible for converting the parameter
+        from the forward model to the internal ert format
+        """
         ...
 
     @abstractmethod
-    def save(
+    def write_to_runpath(
         self, run_path: Path, real_nr: int, ensemble: EnsembleReader
     ) -> Optional[Dict[str, Dict[str, float]]]:
+        """
+        This function is responsible for converting the parameter
+        from the internal ert format to the format the forward model
+        expects
+        """
         ...
 
     def to_dict(self) -> Dict[str, Any]:
         data = dataclasses.asdict(self, dict_factory=CustomDict)
         data["_ert_kind"] = self.__class__.__name__
         return data
+
+    def save_experiment_data(  # noqa: B027
+        self,
+        experiment_path: Path,
+    ):
+        pass

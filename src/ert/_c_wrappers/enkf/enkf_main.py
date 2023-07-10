@@ -6,7 +6,17 @@ import os
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, Mapping, Optional, Sequence, Union
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Dict,
+    Iterable,
+    List,
+    Mapping,
+    Optional,
+    Sequence,
+    Union,
+)
 
 import numpy as np
 from numpy.random import SeedSequence
@@ -88,7 +98,7 @@ def _value_export_json(
 
 
 def _generate_parameter_files(
-    parameter_configs: List[ParameterConfig],
+    parameter_configs: Iterable[ParameterConfig],
     export_base_name: str,
     run_path: Path,
     iens: int,
@@ -116,7 +126,7 @@ def _generate_parameter_files(
         # model has completed.
         if node.forward_init and iteration == 0:
             continue
-        export_values = node.save(Path(run_path), iens, fs)
+        export_values = node.write_to_runpath(Path(run_path), iens, fs)
         if export_values:
             exports.update(export_values)
         continue
@@ -288,18 +298,20 @@ class EnKFMain:
         until after the forward model has completed.
         """
         t = time.perf_counter()
-
+        parameter_configs = ensemble.experiment.parameter_configuration
         if parameters is None:
-            parameters = self.ensembleConfig().parameters
-        parameter_configs = self.ensembleConfig().parameter_configs
+            parameters = list(parameter_configs.keys())
         for parameter in parameters:
             config_node = parameter_configs[parameter]
             if config_node.forward_init:
                 continue
             for realization_nr in active_realizations:
-                config_node.sample_or_load(
-                    realization_nr, ensemble, random_seed=self._global_seed
+                ds = config_node.sample_or_load(
+                    realization_nr,
+                    random_seed=self._global_seed,
+                    ensemble_size=ensemble.ensemble_size,
                 )
+                ensemble.save_parameters(parameter, realization_nr, ds)
         for realization_nr in active_realizations:
             ensemble.update_realization_state(
                 realization_nr,
@@ -344,7 +356,7 @@ class EnKFMain:
                 ert_config = self.resConfig()
                 model_config = ert_config.model_config
                 _generate_parameter_files(
-                    ert_config.ensemble_config.parameter_configuration,
+                    run_context.sim_fs.experiment.parameter_configuration.values(),
                     model_config.gen_kw_export_name,
                     run_path,
                     run_arg.iens,
