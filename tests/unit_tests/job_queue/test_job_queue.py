@@ -4,15 +4,14 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 from threading import BoundedSemaphore
-from typing import TYPE_CHECKING, Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, Optional
 from unittest.mock import MagicMock, patch
 
 from ert.config import QueueSystem
 from ert.job_queue import Driver, JobQueue, JobQueueNode, JobStatus
 from ert.load_status import LoadStatus
 
-if TYPE_CHECKING:
-    from ert.callbacks import Callback
+import ert.callbacks
 
 
 def wait_for(
@@ -65,11 +64,15 @@ class RunArg:
 
 
 def create_local_queue(
+    monkeypatch,
     executable_script: str,
     max_submit: int = 1,
     max_runtime: Optional[int] = None,
-    callback_timeout: Optional["Callback"] = None,
+    callback_timeout: Optional["Callable[[int], None]"] = None,
 ):
+    monkeypatch.setattr(ert.job_queue.job_queue_node, "forward_model_ok", DUMMY_CONFIG["ok_callback"])
+    monkeypatch.setattr(JobQueueNode, "run_exit_callback", DUMMY_CONFIG["exit_callback"])
+
     driver = Driver(driver_type=QueueSystem.LOCAL)
     job_queue = JobQueue(driver, max_submit=max_submit)
 
@@ -86,9 +89,8 @@ def create_local_queue(
             num_cpu=DUMMY_CONFIG["num_cpu"],
             status_file=job_queue.status_file,
             exit_file=job_queue.exit_file,
-            done_callback_function=DUMMY_CONFIG["ok_callback"],
-            exit_callback_function=DUMMY_CONFIG["exit_callback"],
-            callback_arguments=(RunArg(iens), None),
+            run_arg=RunArg(iens),
+            ensemble_config=None,
             max_runtime=max_runtime,
             callback_timeout=callback_timeout,
         )
@@ -107,7 +109,7 @@ def start_all(job_queue, sema_pool):
 
 def test_kill_jobs(tmpdir, monkeypatch):
     monkeypatch.chdir(tmpdir)
-    job_queue = create_local_queue(NEVER_ENDING_SCRIPT)
+    job_queue = create_local_queue(monkeypatch, NEVER_ENDING_SCRIPT)
 
     assert job_queue.queue_size == 10
     assert job_queue.is_active()
@@ -138,7 +140,7 @@ def test_kill_jobs(tmpdir, monkeypatch):
 
 def test_add_jobs(tmpdir, monkeypatch):
     monkeypatch.chdir(tmpdir)
-    job_queue = create_local_queue(SIMPLE_SCRIPT)
+    job_queue = create_local_queue(monkeypatch, SIMPLE_SCRIPT)
 
     assert job_queue.queue_size == 10
     assert job_queue.is_active()
@@ -158,7 +160,7 @@ def test_add_jobs(tmpdir, monkeypatch):
 
 def test_failing_jobs(tmpdir, monkeypatch):
     monkeypatch.chdir(tmpdir)
-    job_queue = create_local_queue(FAILING_SCRIPT, max_submit=1)
+    job_queue = create_local_queue(monkeypatch, FAILING_SCRIPT, max_submit=1)
 
     assert job_queue.queue_size == 10
     assert job_queue.is_active()
@@ -186,11 +188,12 @@ def test_timeout_jobs(tmpdir, monkeypatch):
     monkeypatch.chdir(tmpdir)
     job_numbers = set()
 
-    def callback(runarg, _):
+    def callback(iens):
         nonlocal job_numbers
-        job_numbers.add(runarg.iens)
+        job_numbers.add(iens)
 
     job_queue = create_local_queue(
+        monkeypatch,
         NEVER_ENDING_SCRIPT,
         max_submit=1,
         max_runtime=5,
@@ -225,7 +228,7 @@ def test_timeout_jobs(tmpdir, monkeypatch):
 
 def test_add_dispatch_info(tmpdir, monkeypatch):
     monkeypatch.chdir(tmpdir)
-    job_queue = create_local_queue(SIMPLE_SCRIPT)
+    job_queue = create_local_queue(monkeypatch, SIMPLE_SCRIPT)
     ens_id = "some_id"
     cert = "My very nice cert"
     token = "my_super_secret_token"
@@ -256,7 +259,7 @@ def test_add_dispatch_info(tmpdir, monkeypatch):
 
 def test_add_dispatch_info_cert_none(tmpdir, monkeypatch):
     monkeypatch.chdir(tmpdir)
-    job_queue = create_local_queue(SIMPLE_SCRIPT)
+    job_queue = create_local_queue(monkeypatch, SIMPLE_SCRIPT)
     ens_id = "some_id"
     dispatch_url = "wss://example.org"
     cert = None

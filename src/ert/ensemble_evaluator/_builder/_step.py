@@ -8,7 +8,6 @@ from ert.config.ext_job import ExtJob
 
 SOURCE_TEMPLATE_STEP = "/step/{step_id}"
 if TYPE_CHECKING:
-    from ert.callbacks import Callback, CallbackArgs
     from ert.run_arg import RunArg
 
 
@@ -26,11 +25,10 @@ class LegacyStep:
     jobs: Sequence[LegacyJob]
     name: str
     max_runtime: Optional[int]
-    callback_arguments: CallbackArgs
-    done_callback: Callback
-    exit_callback: Callback
+    run_arg: RunArg
+    ensemble_config: "EnsembleConfig"
     num_cpu: int
     run_path: Path
     job_script: str
     job_name: str
-    run_arg: RunArg
+

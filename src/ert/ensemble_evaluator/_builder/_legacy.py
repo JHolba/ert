@@ -137,12 +137,11 @@ class LegacyEnsemble(Ensemble):
         timeout_queue: asyncio.Queue[MsgType],
         cloudevent_unary_send: Callable[[MsgType], Awaitable[None]],
         event_generator: Callable[[str, Optional[int]], MsgType],
-    ) -> Tuple[Callback, asyncio.Task[None]]:
-        def on_timeout(run_args: RunArg, _: EnsembleConfig) -> LoadResult:
+    ) -> Tuple[Callable[[int], None], asyncio.Task[None]]:
+        def on_timeout(iens: int):
             timeout_queue.put_nowait(
-                event_generator(identifiers.EVTYPE_FM_STEP_TIMEOUT, run_args.iens)
+                event_generator(identifiers.EVTYPE_FM_STEP_TIMEOUT, iens)
             )
-            return LoadResult(None, "timed out")
 
         async def send_timeout_message() -> None:
             while True:
