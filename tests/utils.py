@@ -27,6 +27,12 @@ def source_dir() -> Path:
     while current_path != Path("/"):
         if (current_path / ".git").is_dir():
             return current_path
+        # This is to find root dir for git worktree
+        elif (current_path / ".git").is_file():
+            with open(current_path / ".git") as f:
+                for line in f.readlines():
+                    if "gitdir:" in line:
+                        return current_path
         current_path = current_path.parent
     raise RuntimeError("Cannot find the source folder")
 
