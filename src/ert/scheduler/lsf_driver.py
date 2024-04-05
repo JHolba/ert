@@ -356,6 +356,7 @@ class LsfDriver(Driver):
 
         process = await asyncio.create_subprocess_exec(
             self._bhist_cmd,
+            "-n 2",
             *[str(job_id) for job_id in missing_job_ids],
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
