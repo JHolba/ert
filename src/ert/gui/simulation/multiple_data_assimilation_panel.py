@@ -5,8 +5,16 @@ from typing import TYPE_CHECKING, Any
 
 from PyQt6.QtCore import pyqtSlot as Slot
 from PyQt6.QtGui import QFont
-from PyQt6.QtWidgets import QCheckBox, QFormLayout, QLabel, QWidget
+from PyQt6.QtWidgets import (
+    QCheckBox,
+    QFormLayout,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QWidget,
+)
 
+from ert.config.design_matrix import DesignMatrix
 from ert.gui.ertnotifier import ErtNotifier
 from ert.gui.ertwidgets import (
     ActiveRealizationsModel,
@@ -18,6 +26,7 @@ from ert.gui.ertwidgets import (
     TextModel,
     ValueModel,
 )
+from ert.gui.tools.design_matrix.design_matrix_panel import DesignMatrixPanel
 from ert.mode_definitions import ES_MDA_MODE
 from ert.run_models import MultipleDataAssimilation
 from ert.validation import (
@@ -25,7 +34,9 @@ from ert.validation import (
     ProperNameFormatArgument,
     RangeStringArgument,
 )
+from ert.validation.active_range import ActiveRange
 from ert.validation.proper_name_argument import ExperimentValidation
+from ert.validation.range_string_argument import RangeSubsetStringArgument
 
 from .experiment_config_panel import ExperimentConfigPanel
 
@@ -135,9 +146,42 @@ class MultipleDataAssimilationPanel(ExperimentConfigPanel):
             self.simulationConfigurationChanged
         )
 
+        design_matrix = analysis_config.design_matrix
+        if design_matrix is not None:
+            self._active_realizations_field.setText(
+                ActiveRange(design_matrix.active_realizations).rangestring
+            )
+            self._active_realizations_field.setValidator(
+                RangeSubsetStringArgument(
+                    ActiveRange(design_matrix.active_realizations)
+                )
+            )
+            show_dm_param_button = QPushButton("Show parameters")
+            show_dm_param_button.setObjectName("show-dm-parameters")
+            show_dm_param_button.setMinimumWidth(50)
+
+            button_layout = QHBoxLayout()
+            button_layout.addWidget(show_dm_param_button)
+            button_layout.addStretch()  # Add stretch to push the button to the left
+
+            layout.addRow("Design Matrix", button_layout)
+            show_dm_param_button.clicked.connect(
+                lambda: self.on_show_dm_params_clicked(design_matrix)
+            )
+
         self.setLayout(layout)
 
         self.notifier.ertChanged.connect(self._update_experiment_name_placeholder)
+
+    def on_show_dm_params_clicked(self, design_matrix: DesignMatrix) -> None:
+        viewer = DesignMatrixPanel(
+            design_matrix.design_matrix_df,
+            design_matrix.xls_filename.name,
+        )
+        viewer.setMinimumHeight(500)
+        viewer.setMinimumWidth(1000)
+        viewer.adjustSize()
+        viewer.exec()
 
     @Slot(QWidget)
     def experimentTypeChanged(self, w: QWidget) -> None:

@@ -110,14 +110,12 @@ def _setup_ensemble_experiment(
     args: Namespace,
     status_queue: SimpleQueue[StatusEvents],
 ) -> EnsembleExperiment:
-    active_realizations = _realizations(
-        args, config.model_config.num_realizations
-    ).tolist()
-    if (
-        config.analysis_config.design_matrix is not None
+    active_realizations = (
+        config.analysis_config.design_matrix.active_realizations
+        if config.analysis_config.design_matrix is not None
         and config.analysis_config.design_matrix.active_realizations is not None
-    ):
-        active_realizations = config.analysis_config.design_matrix.active_realizations
+        else _realizations(args, config.model_config.num_realizations).tolist()
+    )
     experiment_name = args.experiment_name
     assert experiment_name is not None
 
@@ -239,10 +237,16 @@ def _setup_multiple_data_assimilation(
     status_queue: SimpleQueue[StatusEvents],
 ) -> MultipleDataAssimilation:
     restart_run, prior_ensemble = _determine_restart_info(args)
-    active_realizations = _validate_num_realizations(args, config)
+    active_realizations = (
+        config.analysis_config.design_matrix.active_realizations
+        if config.analysis_config.design_matrix is not None
+        and config.analysis_config.design_matrix.active_realizations is not None
+        else _validate_num_realizations(args, config).tolist()
+    )
+
     return MultipleDataAssimilation(
         random_seed=config.random_seed,
-        active_realizations=active_realizations.tolist(),
+        active_realizations=active_realizations,
         target_ensemble=_iterative_ensemble_format(args),
         weights=args.weights,
         restart_run=restart_run,
