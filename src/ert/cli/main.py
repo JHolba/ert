@@ -14,6 +14,7 @@ from ert.cli.monitor import Monitor
 from ert.cli.workflow import execute_workflow
 from ert.config import ErtConfig, QueueSystem
 from ert.ensemble_evaluator import EndEvent, EvaluatorServerConfig
+from ert.exceptions import SignalException
 from ert.mode_definitions import (
     ENSEMBLE_EXPERIMENT_MODE,
     ENSEMBLE_SMOOTHER_MODE,
@@ -142,7 +143,7 @@ def run_cli(args: Namespace, plugin_manager: ErtPluginManager | None = None) -> 
             end_event = monitor.monitor(
                 status_queue, ert_config.analysis_config.log_path
             )
-        except (SystemExit, KeyboardInterrupt, OSError):
+        except (SystemExit, KeyboardInterrupt, SignalException):
             print("\nKilling simulations...")
             model.cancel()
 

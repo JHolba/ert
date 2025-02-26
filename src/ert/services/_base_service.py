@@ -15,6 +15,8 @@ from time import sleep
 from types import FrameType
 from typing import TYPE_CHECKING, Any, Generic, Self, TypeVar
 
+from ert.exceptions import SignalException
+
 if TYPE_CHECKING:
     from inspect import Traceback
 
@@ -30,7 +32,7 @@ def cleanup_service_files(signum: int, frame: FrameType | None) -> None:
         file = Path(file_path)
         if file.exists():
             file.unlink()
-    raise OSError(f"Signal {signum} received.")
+    raise SignalException(f"Signal {signum} received.")
 
 
 if threading.current_thread() is threading.main_thread():

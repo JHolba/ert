@@ -5,3 +5,7 @@ class ErtError(Exception):
 class StorageError(ErtError):
     def __init__(self, message: str) -> None:
         self.message = message
+
+
+class SignalException(OSError):
+    pass
