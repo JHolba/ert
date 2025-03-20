@@ -197,11 +197,7 @@ class SchemaItem:
                 try:
                     return val_type(str(token))
                 except ValueError as err:
-                    config_case = (
-                        val_type.ert_config_case()
-                        if hasattr(val_type, "ert_config_case")
-                        else None
-                    )
+                    config_case = getattr(val_type, "ert_config_case", None)
                     match config_case:
                         case "upper":
                             valid_options = [v.value.upper() for v in val_type]  # type: ignore

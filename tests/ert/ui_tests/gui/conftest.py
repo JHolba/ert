@@ -236,8 +236,8 @@ def run_experiment_fixture(request):
         simulation_settings = experiment_panel._experiment_widgets[
             experiment_panel.get_current_experiment_type()
         ]
-        if hasattr(simulation_settings, "_ensemble_name_field"):
-            simulation_settings._ensemble_name_field.setText("iter-0")
+        if name_field := getattr(simulation_settings, "_ensemble_name_field", None):
+            name_field.setText("iter-0")
 
         # Click start simulation and agree to the message
         run_experiment = experiment_panel.findChild(QWidget, name="run_experiment")

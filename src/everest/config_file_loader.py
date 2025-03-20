@@ -38,8 +38,8 @@ def load_yaml(file_name: str, safe: bool = False) -> dict[str, Any] | None:
             yaml.preserve_quotes = True
             return yaml.load("".join(input_data))
         except YAMLError as exc:
-            if hasattr(exc, "problem_mark"):
-                mark = exc.problem_mark
+            mark = getattr(exc, "problem_mark", None)
+            if mark is not None:
                 raise YAMLError(
                     str(exc)
                     + "\nError in line: {}\n {}^)".format(

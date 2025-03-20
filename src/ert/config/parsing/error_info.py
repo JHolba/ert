@@ -21,10 +21,7 @@ class ErrorInfo:
     def _take(cls, context: MaybeWithContext, attr: str) -> FileContextToken | None:
         if isinstance(context, FileContextToken):
             return context
-        elif hasattr(context, attr):
-            return getattr(context, attr)
-
-        return None
+        return getattr(context, attr, None)
 
     def set_context(self, context: MaybeWithContext) -> Self:
         self._attach_to_context(self._take(context, "token"))

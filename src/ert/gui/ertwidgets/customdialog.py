@@ -59,7 +59,7 @@ class CustomDialog(QDialog):
     def optionValidationChanged(self) -> None:
         valid = True
         for option in self._option_list:
-            if hasattr(option, "isValid") and not option.isValid():
+            if (is_valid := getattr(option, "isValid", None)) and is_valid():
                 valid = False
                 self.notValid("One or more options are incorrectly set!")
 
@@ -84,11 +84,10 @@ class CustomDialog(QDialog):
     def addLabeledOption(self, label: Any, option_widget: QWidget) -> None:
         self._option_list.append(option_widget)
 
-        if hasattr(option_widget, "validationChanged"):
-            option_widget.validationChanged.connect(self.optionValidationChanged)
+        if validation_changed := getattr(option_widget, "validationChanged", None):
+            validation_changed.connect(self.optionValidationChanged)
 
-        if hasattr(option_widget, "getValidationSupport"):
-            validation_support = option_widget.getValidationSupport()
+        if validation_support := getattr(option_widget, "getValidationSupport", None):
             validation_support.validationChanged.connect(self.optionValidationChanged)
 
         self._layout.addRow(f"{label}:", option_widget)
